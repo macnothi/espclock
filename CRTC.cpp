@@ -15,7 +15,8 @@
 CRTC::CRTC():
 m_pSyncProvider(0),
 syncInterval(86400),
-nextSyncTime(0)
+nextSyncTime(0),
+Rtc(Wire)
 {
   
 }
@@ -111,5 +112,3 @@ void CRTC::setSyncInterval(time_t interval){ // set the number of seconds betwee
   
   nextSyncTime = now.Epoch32Time() + syncInterval;
 }
-
-

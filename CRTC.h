@@ -9,7 +9,7 @@
 #include <avr/pgmspace.h>
 #endif
 #include <Wire.h>  // must be incuded here so that Arduino library object file references work
-#include <RtcDS3231.h>
+#include <RtcDS3231.h>    // makuna RTC library
 
 
 class CRTC : public ISyncProvider
@@ -36,9 +36,8 @@ private:
   uint32_t nextSyncTime;
 
   time_t sync(time_t t, bool force=false);
-  
 
-  RtcDS3231 Rtc;
+  RtcDS3231<TwoWire> Rtc;
   
 };
 

@@ -2,31 +2,25 @@
 
 #define FASTLED_ESP8266_RAW_PIN_ORDER
 
-#include <TimeLib.h>              //http://www.arduino.cc/playground/Code/Time
+#include <TimeLib.h>             // http://www.arduino.cc/playground/Code/Time Time, by Michael Margolis includes
+                                  // https://github.com/PaulStoffregen/Time V1.5 
 #include "CRTC.h"
 #include "CNTPClient.h"
-#include <Timezone.h>             //https://github.com/JChristensen/Timezone (Use https://github.com/willjoha/Timezone as long as https://github.com/JChristensen/Timezone/pull/8 is not merged.)
-
-#include <FastLED.h>
+#include <Timezone.h>             // https://github.com/JChristensen/Timezone v1.2.2
+#include <FastLED.h>              // https://github.com/FastLED/FastLED v3.2.10
 #include "CFadeAnimation.h"
-
 #include "CClockDisplay.h"
-
 #include <ESP8266WiFi.h>
-
 #include <DNSServer.h>            
 #include <ESP8266WebServer.h>     
-#include <WiFiManager.h>          //https://github.com/tzapu/WiFiManager
-
-#include <ArduinoJson.h>          //https://github.com/bblanchon/ArduinoJson
+#include <WiFiManager.h>          // https://github.com/tzapu/WiFiManager v0.14.0
+#include <ArduinoJson.h>          // https://github.com/bblanchon/ArduinoJson v6.11.5
 
 #include <Ticker.h>
 Ticker ticker;
 
 #define BLYNK_PRINT Serial        // Comment this out to disable prints and save space
 #include <BlynkSimpleEsp8266.h>
-
-#include "OpcServer.h"            //https://github.com/plasticrake/OpcServer (use a version which includes the following commit: https://github.com/plasticrake/OpcServer/commit/32eafd7d13799ca23b570ec2547ff225f01c015d)
 
 /*
  * ------------------------------------------------------------------------------
@@ -41,24 +35,16 @@ Ticker ticker;
 #define NUM_LEDS 122
 #endif
 
-// DATA_PIN and CLOCK_PIN used by FastLED to control the APA102C LED strip. 
+// DATA_PIN and CLOCK_PIN used by FastLED to control the APA102C LED strip.
+#define STRIPE_SK9822
+//#define STRIPE_APA102
+
 #define DATA_PIN 13
 #define CLOCK_PIN 14
 
 CRGB leds[NUM_LEDS];
 CRGB leds_target[NUM_LEDS];
 
-/*
- * ------------------------------------------------------------------------------
- * Open Pixel Control Server configuration
- * ------------------------------------------------------------------------------
- */
- 
-const int OPC_PORT = 7890;
-const int OPC_CHANNEL = 1;      // Channel to respond to in addition to 0 (broadcast channel)
-const int OPC_MAX_CLIENTS = 2;  // Maxiumum Number of Simultaneous OPC Clients
-const int OPC_MAX_PIXELS = NUM_LEDS;
-const int OPC_BUFFER_SIZE = OPC_MAX_PIXELS * 3 + OPC_HEADER_BYTES;
 
 /*
  * ------------------------------------------------------------------------------
@@ -92,7 +78,7 @@ TimeChangeRule CET = {"CET ", Last, Sun, Oct, 3, 60};       //Central European S
 Timezone CE(CEST, CET);
 
 CFadeAnimation ani;
-CClockDisplay clock;
+CClockDisplay clockDisp;
 
 void updateBrightness(bool force=false)
 {
@@ -152,14 +138,14 @@ BLYNK_WRITE(V0)
   ledcolor.r = param[0].asInt();
   ledcolor.g = param[1].asInt();
   ledcolor.b = param[2].asInt();
-  clock.setColor(ledcolor);
-  clock.update(true);
+  clockDisp.setColor(ledcolor);
+  clockDisp.update(true);
   //Blynk.virtualWrite(V0, ledcolor.r, ledcolor.g, ledcolor.b);
 }
 
 //BLYNK_READ(V0)
 //{
-//  CRGB ledcolor(clock.getColor());
+//  CRGB ledcolor(clockDisp.getColor());
 //  
 //  Blynk.virtualWrite(V0, ledcolor.r, ledcolor.g, ledcolor.b);
 //}
@@ -211,45 +197,6 @@ BLYNK_CONNECTED() {
 //------------------------------------------------------------------------------
 // Open Pixel Protocol callbacks:
 
-// Callback when a full OPC Message has been received
-void cbOpcMessage(uint8_t channel, uint8_t command, uint16_t length, uint8_t* data) {
-  if(0 == channel || 1 == channel)
-  {
-    switch(command)
-    {
-      case 0x00:
-                  for(uint8_t i = 0; i < length/3; i++)
-                  {
-                    leds[i].r = data[i*3+0];
-                    leds[i].g = data[i*3+1];
-                    leds[i].b = data[i*3+2];
-                  }
-                  FastLED.show(brightness);
-                  break;
-      case 0xFF: break;
-    }
-  }
-}
-
-// Callback when a client is connected
-void cbOpcClientConnected(WiFiClient& client) {
-  Serial.print("::cbOpcClientConnected(): New OPC Client: ");
-#if defined(ESP8266) || defined(PARTICLE)
-  Serial.println(client.remoteIP());
-#else
-  Serial.println("(IP Unknown)");
-#endif
-  displayClock = false;
-}
-
-// Callback when a client is disconnected
-void cbOpcClientDisconnected(OpcClient& opcClient) {
-  Serial.print("::cbOpcClientDisconnected(): Client Disconnected: ");
-  Serial.println(opcClient.ipAddress);
-  displayClock = true;
-  clock.update(true);
-  ani.transform(leds, leds_target, NUM_LEDS, true);
-}
 
 //------------------------------------------------------------------------------
 //Ticker callback:
@@ -276,19 +223,76 @@ void cbConfigMode(WiFiManager *myWiFiManager)
   ticker.attach(0.2, cbTick);
 }
 
-//==============================================================================
-// OpcServer Init
-//==============================================================================
-WiFiServer server = WiFiServer(OPC_PORT);
-OpcClient opcClients[OPC_MAX_CLIENTS];
-uint8_t buffer[OPC_BUFFER_SIZE * OPC_MAX_CLIENTS];
-OpcServer opcServer = OpcServer(server, OPC_CHANNEL, opcClients, OPC_MAX_CLIENTS, buffer, OPC_BUFFER_SIZE);
-//------------------------------------------------------------------------------
+
+bool readSettings()
+{
+	if (SPIFFS.exists("/config.json")) 
+	{
+		//file exists, reading and loading
+		Serial.println("reading config file");
+		File configFile = SPIFFS.open("/config.json", "r");
+		if (configFile) 
+		{
+			Serial.println("opened config file");
+			size_t size = configFile.size();
+			if (size > 1024)
+			{
+				Serial.println("INIT: config file size is too large");
+				return false;
+			}
+        
+			// Allocate a buffer to store contents of the file.
+			std::unique_ptr<char[]> buf(new char[size]);
+  
+			configFile.readBytes(buf.get(), size);
+  
+			StaticJsonDocument<200> json;
+			auto error = deserializeJson(json, buf.get());
+			if (error)
+			{
+				Serial.println("INIT: failed to parse config file");
+				return false;
+			}
+			if (json["ntp_server"])
+				strcpy (ntp_server, json["ntp_server"]);
+
+			if (json["blynk_token"])
+				strcpy (blynk_token, json["blynk_token"]);
+
+		} 
+        else 
+        {
+          Serial.println("failed to load json config");
+          return false;
+        }
+	}
+
+	return true;
+}
 
 
+bool writeSettings()
+{
+	StaticJsonDocument<200> jsonBuffer;
+	jsonBuffer["ntp_server"] = ntp_server;
+	jsonBuffer["blynk_token"] = blynk_token;
 
+	File configFile = SPIFFS.open("/config.json", "w");
+	if (!configFile)
+	{
+		Serial.println("failed to open config file for writing");
+		return false;
+	}
 
-void setup () 
+	serializeJson(jsonBuffer, configFile);
+
+	configFile.close();
+
+	Serial.println("done saving");
+	return true;
+}
+
+void setup()
 {
   Serial.begin(57600);
 
@@ -296,8 +300,14 @@ void setup ()
   Serial.print(__DATE__);
   Serial.println(__TIME__);
 
-  //FastLED.setMaxPowerInVoltsAndMilliamps(5,1000); 
+  //FastLED.setMaxPowerInVoltsAndMilliamps(5,1000);
+
+#ifdef STRIPE_SK9822
+  FastLED.addLeds<SK9822, DATA_PIN, CLOCK_PIN, BGR, DATA_RATE_MHZ(12)>(leds, NUM_LEDS);
+#endif
+#ifdef STRIPE_APA102
   FastLED.addLeds<APA102, DATA_PIN, CLOCK_PIN, BGR>(leds, NUM_LEDS);
+#endif
   //FastLED.setCorrection(0xF0FFF7);
   //FastLED.setTemperature(Tungsten40W);
 
@@ -311,38 +321,13 @@ void setup ()
   //read configuration from FS json
   Serial.println("mounting FS...");
 
-  if (SPIFFS.begin()) {
+  if (SPIFFS.begin()) 
+  {
     Serial.println("mounted file system");
-    if (SPIFFS.exists("/config.json")) {
-      //file exists, reading and loading
-      Serial.println("reading config file");
-      File configFile = SPIFFS.open("/config.json", "r");
-      if (configFile) {
-        Serial.println("opened config file");
-        size_t size = configFile.size();
-        // Allocate a buffer to store contents of the file.
-        std::unique_ptr<char[]> buf(new char[size]);
-
-        configFile.readBytes(buf.get(), size);
-        DynamicJsonBuffer jsonBuffer;
-        JsonObject& json = jsonBuffer.parseObject(buf.get());
-        json.printTo(Serial);
-        if (json.success()) {
-          Serial.println("\nparsed json");
-
-          strcpy(ntp_server, json["ntp_server"]);
-          strcpy(blynk_token, json["blynk_token"]);
-
-        } else {
-          Serial.println("failed to load json config");
-        }
-      }
-    }
+    readSettings();
   } else {
     Serial.println("failed to mount FS");
   }
-  //end read
-
 
   WiFiManager wifiManager;
   wifiManager.setAPCallback(cbConfigMode);
@@ -357,7 +342,7 @@ void setup ()
   //reset settings - for testing
   //wifiManager.resetSettings();
 
-  if (!wifiManager.autoConnect("ESPClockAP")) {
+  if (!wifiManager.autoConnect("WordClock")) {
     Serial.println("failed to connect and hit timeout");
     delay(3000);
     //reset and try again, or maybe put it to deep sleep
@@ -373,22 +358,9 @@ void setup ()
   strcpy(blynk_token, custom_blynk_token.getValue());
 
   //save the custom parameters to FS
-  if (shouldSaveConfig) {
-    Serial.println("saving config");
-    DynamicJsonBuffer jsonBuffer;
-    JsonObject& json = jsonBuffer.createObject();
-    json["ntp_server"] = ntp_server;
-    json["blynk_token"] = blynk_token;
-
-    File configFile = SPIFFS.open("/config.json", "w");
-    if (!configFile) {
-      Serial.println("failed to open config file for writing");
-    }
-
-    json.printTo(Serial);
-    json.printTo(configFile);
-    configFile.close();
-    //end save
+  if (shouldSaveConfig) 
+  {
+	  writeSettings();
   }
   
   Serial.print("IP number assigned by DHCP is ");
@@ -411,19 +383,8 @@ void setup ()
 
   updateBrightness();
   
-  clock.setup(&(leds_target[0]), NUM_LEDS);
-  clock.setTimezone(&CE);
-
-  opcServer.setMsgReceivedCallback(cbOpcMessage);
-  opcServer.setClientConnectedCallback(cbOpcClientConnected);
-  opcServer.setClientDisconnectedCallback(cbOpcClientDisconnected);
-  
-  opcServer.begin();
-  
-  Serial.print("\nOPC Server: ");
-  Serial.print(WiFi.localIP());
-  Serial.print(":");
-  Serial.println(OPC_PORT);
+  clockDisp.setup(&(leds_target[0]), NUM_LEDS);
+  clockDisp.setTimezone(&CE);
 
   Blynk.config(blynk_token);
   ticker.detach();
@@ -441,16 +402,12 @@ void loop ()
 
   if(displayClock)
   {
-    bool changed = clock.update();
+    bool changed = clockDisp.update();
     ani.transform(leds, leds_target, NUM_LEDS, changed);
 
     FastLED.show();
   }
 
-  opcServer.process();
 
   Blynk.run();
 }
-
-
-
