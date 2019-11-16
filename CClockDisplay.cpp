@@ -64,10 +64,10 @@ const int MIN2[]    = { 112, 113, -1 };
 const int MIN3[]    = { 112, 113, 114, -1 };
 const int MIN4[]    = { 112, 113, 114, 115, -1 };
 #else
-const int MIN1[]    = { 113, -1 };
-const int MIN2[]    = { 113, 112, -1 };
-const int MIN3[]    = { 113, 112, 111, -1 };
-const int MIN4[]    = { 113, 112, 111, 110, -1 };
+const int MIN1[]    = { 115, -1 };
+const int MIN2[]    = { 115, 114, -1 };
+const int MIN3[]    = { 115, 114, 113, -1 };
+const int MIN4[]    = { 115, 114, 113, 112, -1 };
 #endif
 const int DST[]     = { 109, -1};
 
@@ -414,4 +414,3 @@ void CClockDisplay::display_time(const int hour, const int minute)
 		m_pLEDs[random8(m_numLEDs)] = CRGB::White;
 	}
 }
-

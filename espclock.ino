@@ -1,8 +1,9 @@
 #include <FS.h>                   
                                   // From the WifiManager AutoConnectWithFSParameters: 
                                   // this needs to be first, or it all crashes and burns... hmmm is this really the case?
-
 #define FASTLED_ESP8266_RAW_PIN_ORDER  
+
+#define SMALLCLOCK                // small clock
 
 #include <TimeLib.h>              // http://www.arduino.cc/playground/Code/Time Time, by Michael Margolis includes
                                   // https://github.com/PaulStoffregen/Time V1.5 
@@ -32,6 +33,7 @@ unsigned long ulReqcount;
  * ------------------------------------------------------------------------------
  */
 
+
  // Number of LEDs used for the clock (11x10 + 4 minute LEDs + 4 spare LEDs)
 #ifdef SMALLCLOCK
 #define NUM_LEDS 118
@@ -45,8 +47,8 @@ const int INIT_GREEN = 127;
 const int INIT_BLUE = 36;
 
 // choose your type of LED stripe controllers
-//#define STRIPE_SK9822
-#define STRIPE_APA102
+#define STRIPE_SK9822
+//#define STRIPE_APA102
 
 #define DATA_PIN 13
 #define CLOCK_PIN 14
@@ -557,7 +559,7 @@ void setup()
 
 	// init LEDs
 #ifdef STRIPE_APA102
-	Serial.println("init LED stripe SK9822...");
+	Serial.println("init LED stripe APA102...");
 	FastLED.addLeds<APA102, DATA_PIN, CLOCK_PIN, BGR>(leds, NUM_LEDS);
 #endif
 #ifdef STRIPE_SK9822
